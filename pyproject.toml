@@ -36,9 +36,10 @@ skip-magic-trailing-comma = false
 line-ending = "auto"
 
 [tool.pytest.ini_options]
-#env = ["ENV_KEY=env_value"]
+env = ["SYMBOL=BTCUSD", "API_KEY=test_key", "ENVIRONMENT=testing",
+    "PRIVATE_KEY_BASE64=LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1DNENBUUF3QlFZREsyVndCQ0lFSUFMbENuWnN4UXAwa29OaFN2R3ErUUlrQXU2Y0xFQ2kxbE51Znh3L3FTUXoKLS0tLS1FTkQgUFJJVkFURSBLRVktLS0tLQo="]
 pythonpath = [
-  ".", "src",
+    ".", "src",
 ]
 
 [tool.mypy]

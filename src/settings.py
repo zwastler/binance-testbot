@@ -3,11 +3,13 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     VERSION: str = "0.0.1"
-    LOGLEVEL: str = "INFO"
     ENVIRONMENT: str = "development"
 
-    JSON_LOG: bool = False
-    COLORED_LOGS: bool = not JSON_LOG
+    LOGLEVEL: str = "INFO"
+    JSON_LOGS: bool = False
+    COLORED_LOGS: bool = not JSON_LOGS
+    SAVE_LOG_FILE: bool = False
+    LOG_FILE_PATH: str = "logs/test_bot.log"
 
     SYMBOL: str = "BTCUSDT"
     POSITION_QUANTITY: float = 0.001

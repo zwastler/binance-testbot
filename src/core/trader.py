@@ -81,6 +81,7 @@ class Trader:
     async def check_state(self) -> None:
         if self.state.last_price and self.state.status == STATUS.INITIAL and self.state.stream_ready:
             self.state.status = STATUS.READY
+            await logger.ainfo("TestBot is ready for trading..", channel="trader")
 
     async def process_order(self, order: Order) -> None:
         if order.current_order_status == "FILLED":

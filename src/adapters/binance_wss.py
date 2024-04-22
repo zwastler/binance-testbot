@@ -53,7 +53,7 @@ class BinanceWSS(metaclass=SingletonMeta):
         while True:
             try:
                 async with ClientSession() as session:
-                    await logger.adebug(f"Connecting to {self.channel} wss channel", channel=self.channel)
+                    await logger.ainfo(f"Connecting to {self.channel} wss channel", channel=self.channel)
                     async with session.ws_connect(self.wss_url, autoclose=False) as wss:
                         self.wss_client = wss
                         await self.after_connect()
@@ -80,16 +80,16 @@ class BinanceWSS(metaclass=SingletonMeta):
                     message = decoder.decode(msg.data)
                     try:
                         await self.process_message(message, queue)
-                    except Exception as err:
-                        await logger.awarning(f"Failed to process message: {message}", channel=self.channel)
-                        raise Exception from err
+                    except Exception:
+                        await logger.awarning(
+                            "Failed process message", message=message, channel=self.channel, exc_info=True
+                        )
 
                 elif msg.type in (WSMsgType.ERROR, WSMsgType.CLOSED):
                     await logger.awarning("WebSocket closed", channel=self.channel)
                     break
-
                 else:
-                    await logger.awarning(f"Unknown MsgType: {msg.type} {msg.data}", channel=self.channel)
+                    await logger.awarning(f"Unknown MsgType: {msg.type}", channel=self.channel)
 
     async def process_message(self, message: dict[str, Any], queue: asyncio.Queue) -> None:
         # TODO: Refactor this
@@ -111,9 +111,9 @@ class BinanceWSS(metaclass=SingletonMeta):
             latency = -1
 
         if latency:
-            await logger.adebug(f"Received {message_id}: {message}", channel=self.channel, latency=latency)
+            await logger.adebug(message, channel=self.channel, latency=latency)
         else:
-            await logger.adebug(f"Received {message_id}: {message}", channel=self.channel)
+            await logger.adebug(message, channel=self.channel)
 
 
 class BinancePrivateWSS(BinanceWSS):
@@ -171,7 +171,7 @@ class BinancePrivateWSS(BinanceWSS):
     async def user_data_stream_ping_worker(self) -> None:
         while True:
             await asyncio.sleep(60 * 30)  # send ping every 30 minutes
-            await logger.ainfo("UserStream listenKey update", channel=self.channel)
+            await logger.ainfo("Sending UserStream listenKey update.", channel=self.channel)
             await self.wss_client.send_json(self.create_ws_message("userDataStream.ping"))  # type: ignore
 
     async def after_connect(self) -> None:
@@ -238,7 +238,7 @@ class UserStreamWSS(BinanceWSS):
 
     async def process_message(self, message: dict[str, Any], queue: asyncio.Queue) -> None:
         await super().process_message(message, queue)
-        await logger.adebug(f"UserStream Message: {message}", channel=self.channel)
+        await logger.adebug(message, channel=self.channel)
 
 
 public_wss_client = BinanceWSS(symbol=settings.SYMBOL)

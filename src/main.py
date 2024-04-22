@@ -3,11 +3,13 @@ import signal
 
 import structlog
 from adapters.binance_wss import private_wss_client, public_wss_client
+from core.logging import setup_logging
 from core.trader import Trader
 from settings import settings
 
 logger = structlog.get_logger(__name__)
 shutdown_event = asyncio.Event()
+setup_logging()
 
 
 async def close_tasks(tasks: list) -> None:

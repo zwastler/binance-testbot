@@ -19,19 +19,21 @@ P.S. Бот не рассчитан на работу более 24 часов, 
 
 ### Полный список переменных окружения:
 
-| env                 | description                                 | default     | Required |
-|---------------------|---------------------------------------------|-------------|----------|
-| API_KEY             | binance api key                             | None        | True     |
-| PRIVATE_KEY_BASE64  | base64 encoded private key                  | None        | True     | 
-| SYMBOL              | symbol for trading                          | BTCUSDT     | False    |
-| POSITION_QUANTITY   | quantity for position                       | 0.001       | False    |
-| POSITION_SL_PERCENT | stop loss (percent)                         | 0.25        | False    |
-| POSITION_TP_PERCENT | take profit (percent)                       | 0.25        | False    |
-| POSITION_HOLD_TIME  | position hold time (seconds)                | 60          | False    |
-| POSITION_SLEEP_TIME | sleep time after exit (seconds)             | 30          | False    |
-| LOGLEVEL            | log level, max available DEBUG              | INFO        | False    |
-| JSON_LOG            | json log formatter for log systems like elk | False       | False    |
-| ENVIRONMENT         | environment name                            | development | False    |
+| env                 | description                                 | default           | Required |
+|---------------------|---------------------------------------------|-------------------|----------|
+| API_KEY             | binance api key                             | None              | True     |
+| PRIVATE_KEY_BASE64  | base64 encoded private key                  | None              | True     | 
+| SYMBOL              | symbol for trading                          | BTCUSDT           | False    |
+| POSITION_QUANTITY   | quantity for position                       | 0.001             | False    |
+| POSITION_SL_PERCENT | stop loss (percent)                         | 0.25              | False    |
+| POSITION_TP_PERCENT | take profit (percent)                       | 0.25              | False    |
+| POSITION_HOLD_TIME  | position hold time (seconds)                | 60                | False    |
+| POSITION_SLEEP_TIME | sleep time after exit (seconds)             | 30                | False    |
+| LOGLEVEL            | log level, max available DEBUG              | INFO              | False    |
+| JSON_LOGS           | json log formatter for log systems like elk | False             | False    |
+| ENVIRONMENT         | environment name                            | development       | False    |
+| SAVE_LOG_FILE       | save logs to file (bool)                    | False             | False    |
+| LOG_FILE_PATH       | path to log file                            | /app/logs/bot.log | False    |
 
 ## Примерная архитектура бота
 
@@ -132,7 +134,8 @@ uv pip install -r requirements.txt
 
 ### Сохранение логов в файл
 
-...
+При включении env `SAVE_LOG_FILE` логи будут сохраняться в файл, путь к файлу можно задать через `LOG_FILE_PATH`.
+Если используете в контейнере не забывайте пробросить путь к файлу через volume.
 
 ## Подготовка окружения для разработки и тестов:
 
@@ -151,5 +154,5 @@ uv pip install -r requirements.txt
 - [ ] Сделать обработку балансов и минимальных объемов (ордеров) для выбранной пары
 - [ ] Заменить человекопонятный id на uuid, сделать процессинг сообщений / ордеров
 - [ ] Сделать сохранение стейта в sqlite/redis (для сохранения стейта при перезапуске)
-- [ ] Переделать работу с userDataStream и обновленим listen_key (и пересозданием при необходимости)
-- [ ] Сделать docker-compose для быстрой сборки/запуска и шаблон .env файла
+- [ ] Переделать работу с userDataStream и обновленим listen_key (и пересозданием при необходимости через 24часа)
+- [ ] Docker-compose для быстрой сборки/запуска и шаблон .env файла
