@@ -1,0 +1,73 @@
+[tool.ruff]
+target-version = "py312"
+# Exclude a variety of commonly ignored directories.
+exclude = [
+    ".direnv",
+    ".git",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "venv",
+    "tests",
+    "test_*.py"
+]
+force-exclude = true
+show-fixes = true
+output-format = "full"
+fix = true
+line-length = 120
+
+[tool.ruff.lint]
+ignore-init-module-imports = true
+select = ["A", "B", "C", "DJ", "E", "ERA", "F", "W", "I", "S", "Q"]
+fixable = ["ALL"]
+unfixable = ["B"]
+task-tags = ["TODO", "FIX", "TBD", "WTF"]
+
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+mccabe.max-complexity = 8
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.pytest.ini_options]
+#env = ["ENV_KEY=env_value"]
+pythonpath = [
+  ".", "src",
+]
+
+[tool.mypy]
+python_version = 3.12
+ignore_missing_imports = true
+allow_redefinition = true
+warn_no_return = false
+check_untyped_defs = true
+disallow_untyped_defs = true
+follow_imports = "skip"
+exclude = [
+    "env",
+    "venv",
+    "tests",
+    ".git",
+    ".venv",
+    "__pypackages__",
+    "git-hooks",
+    "deployment",
+    "development",
+]
+
+[[tool.mypy.overrides]]
+module = "mypy-conftest"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "mypy-tests.*"
+ignore_errors = true
+
+[tool.isort]
+force_single_line = true
