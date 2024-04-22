@@ -18,4 +18,4 @@ class Trade(Struct):
 
     def __post_init__(self) -> None:
         self.price = float(self.price)  # type: ignore
-        self.quantity = float(self.quantity)  # type: ignore
+        # self.quantity = float(self.quantity)  # type: ignore

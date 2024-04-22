@@ -27,6 +27,7 @@ class Trader:
             case "executionReport":
                 return msgspec.convert(message, type=Order)
             case "outboundAccountPosition":
+                # TODO: processing of account position
                 pass
 
             case t if t.startswith("private_"):
@@ -39,11 +40,6 @@ class Trader:
                         pass
                     case "account_status":
                         pass
-                    case _:
-                        logger.warning(f"Unknown private message type: {msg_type}")
-                        pass
-            case _:
-                logger.warning(f"Unknown message type: {event_type}")
 
     async def events_processing(self, queue: Queue) -> None:
         while True:
@@ -69,7 +65,7 @@ class Trader:
                 queue.task_done()
 
             except asyncio.CancelledError:
-                logger.info("Task was cancelled: msg processing", channel="trader")
+                await logger.ainfo("Task was cancelled: msg processing", channel="trader")
                 break
 
     async def check_event_messages(self, message: dict[str, Any]) -> None:
@@ -141,7 +137,7 @@ class Trader:
                     and self.state.sleeping_at
                     and timestamp >= self.state.sleeping_at
                 ):
-                    logger.info("sleeping complete, ready for entering new position.")
+                    await logger.ainfo("sleeping complete, ready for entering new position.")
                     self.state.status = STATUS.READY
                     self.state.sleeping_at = 0
 
@@ -160,5 +156,5 @@ class Trader:
                 await asyncio.sleep(0.1)
 
             except asyncio.CancelledError:
-                logger.info("Task was cancelled: time watcher", channel="trader")
+                await logger.ainfo("Task was cancelled: time watcher", channel="trader")
                 break
