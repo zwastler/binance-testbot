@@ -14,7 +14,7 @@ logger = structlog.get_logger(__name__)
 
 class Trader:
     def __init__(self) -> None:
-        self.state = State(status=STATUS.INITIAL)
+        self.state = State()
 
     @staticmethod
     def parse_message(message: dict[str, Any]) -> Trade | Order | None:
@@ -46,6 +46,7 @@ class Trader:
             try:
                 message = await queue.get()
                 await self.check_event_messages(message)
+                await self.check_state()
 
                 if not (parsed_msg := self.parse_message(message)):
                     queue.task_done()
@@ -74,6 +75,7 @@ class Trader:
 
         if message.get("channel") == "user_stream" and message.get("event") == "connected":
             self.state.stream_ready = True
+            await logger.adebug("User stream connected", channel="trader")
 
     async def process_trade(self, trade: Trade) -> None:
         self.state.last_price = float(trade.price)
@@ -96,14 +98,11 @@ class Trader:
             elif self.state.status == STATUS.CLOSING_POSITION:
                 # TODO: Implement PnL calculation with commissions
                 pnl = order.last_executed_price - self.state.position.price  # type: ignore
-                await logger.ainfo(
-                    f"Position closed: {order.last_executed_price} PnL {pnl}, sleeping for "
-                    f"{settings.POSITION_SLEEP_TIME}s",
-                    channel="trader",
-                )
+                await logger.ainfo(f"Position closed: {order.last_executed_price} PnL {pnl}", channel="trader")
                 self.state.status = STATUS.SLEEPING
                 self.state.sleeping_at = order.transaction_time + settings.POSITION_SLEEP_TIME * 1000
                 self.state.position = None
+                await logger.ainfo(f"Sleeping for {settings.POSITION_SLEEP_TIME} sec", channel="trader")
 
     async def check_position_actions(self) -> None:
         """Check if position should be closed due to TP or SL limits, or open new"""
