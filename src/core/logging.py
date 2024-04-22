@@ -6,10 +6,10 @@ from msgspec.json import Encoder
 from settings import settings
 
 encoder = Encoder()
-logging.basicConfig(format="%(message)s", level=settings.LOGLEVEL)
+logging.basicConfig(format="%(message)s", level=settings.LOGLEVEL)  # type: ignore
 
 
-def setup_logging(cache_logger_on_first_use: bool = True):
+def setup_logging(cache_logger_on_first_use: bool = True) -> None:
     processors = [
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,

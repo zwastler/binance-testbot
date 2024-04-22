@@ -2,7 +2,7 @@ format: ## Format code
 	ruff format src
 
 test:			## Run tests. For run as "-k test_name" provide test_name (make test [test_name] => pytest -k test_name)
-	pytest --disable-warnings --cov src --cov-report=xml --junitxml=report.xml -vvvvs
+	pytest --disable-warnings --cov src --cov-report=xml --junitxml=report.xml
 	coverage report
 
 
@@ -10,7 +10,7 @@ types:			## Run only types checks
 	mypy src
 
 check:			## Run checks (tests, style, types)
-	#make test
+	make test
 	make format
 	make types
 
