@@ -209,19 +209,19 @@ class BinancePrivateWSS(BinanceWSS):
         if not self.wss_client or not self.auth_complete:
             await logger.awarning("WebSocket connection not established or not authenticated", channel=self.channel)
             return
-        await self.wss_client.send_json(
-            {
-                "id": f"{side}_market_{int(time.time() * 1000)}".lower(),
-                "method": "order.place",
-                "params": {
-                    "symbol": self.symbol.upper(),
-                    "quantity": quantity,
-                    "side": side,
-                    "type": "MARKET",
-                    "timestamp": int(time.time() * 1000),
-                },
-            }
-        )
+        new_order = {
+            "id": f"{side}_market_{int(time.time() * 1000)}".lower(),
+            "method": "order.place",
+            "params": {
+                "symbol": self.symbol.upper(),
+                "quantity": f"{quantity:.9f}".rstrip("0"),
+                "side": side,
+                "type": "MARKET",
+                "timestamp": int(time.time() * 1000),
+            },
+        }
+        await logger.adebug(f"new order: {new_order}", channel=self.channel)
+        await self.wss_client.send_json(new_order)
 
 
 class UserStreamWSS(BinanceWSS):

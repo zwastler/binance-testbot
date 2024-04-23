@@ -4,11 +4,11 @@
 Это намеренная версия без использования REST в качестве эксперимента. Несмотря на то что для стабильности и продакшн
 реди-окружений я бы рекоммендовал использовать связку `rest`+`wss`.
 
-P.S. Бот не рассчитан на работу более 24 часов, изза особенностей реализации userDataStream.
+P.S. В текущей версии бот не рассчитан на работу более 24 часов, из-за особенностей реализации userDataStream.
 
 ## Принцип работы:
 
-- подключаемся к бирже, проводим базовую инициализацию (балансы)
+- подключаемся к бирже, проводим базовую инициализацию (балансы, мин. размеры позиции)
 - покупаем заданный объем (env `POSITION_QUANTITY`) на заданном рынке (env `SYMBOL`)
 - следим за изменениями цены и при достижении заданных уровней (стоп-лосс, тейк-профит,
   env `POSITION_SL_PERCENT`/`POSITION_TP_PERCENT`)
@@ -31,9 +31,10 @@ P.S. Бот не рассчитан на работу более 24 часов, 
 | POSITION_SLEEP_TIME | sleep time after exit (seconds)             | 30                | False    |
 | LOGLEVEL            | log level, max available DEBUG              | INFO              | False    |
 | JSON_LOGS           | json log formatter for log systems like elk | False             | False    |
-| ENVIRONMENT         | environment name                            | development       | False    |
 | SAVE_LOG_FILE       | save logs to file (bool)                    | False             | False    |
 | LOG_FILE_PATH       | path to log file                            | /app/logs/bot.log | False    |
+| VERSION             | bot version                                 | 0.0.1             | False    |
+| ENVIRONMENT         | environment name                            | development       | False    |
 
 ## Примерная архитектура бота
 
@@ -64,14 +65,16 @@ export PRIVATE_KEY_BASE64=$(base64 -i privatekey.pem)
 Для запуска на AWS EC2, лучше всего использовать Amazon Linux 2 AMI. Я рекомендую использовать docker, для этого
 есть подготовленный Dockerfile и это описание для сборки и запуска контейнера.
 
-1. Создайте новый EC2 инстанс на Amazon Linux 2 AMI (t2.nano будет достаточно), я рекомендую использовать AWS регион
-   Tokyo, тк сама биржа Binance находится в этом регионе и это обеспечит низкие задержки до 5мс. при создании
-   инстанса ec2 для автоматической установки и настройки docker при запуске удобно задать ему скрипт `user data` (см.
+1. Создайте новый EC2 инстанс на Amazon Linux 2 AMI (самого маленького t4g.nano будет достаточно), я рекомендую 
+   использовать AWS регион Tokyo (`ap-northeast-1`), тк сама биржа Binance находится в этом регионе и это обеспечит низкие задержки до 5мс. При создании
+   инстанса ec2 можно выбрать архитектуру `arm`, а для автоматической установки и настройки docker при запуске удобно
+   задать
+   ему скрипт `user data` (см.
    ниже)
     ```shell
     #!/bin/bash
     sudo yum update -y
-    sudo yum install docker -q -y
+    sudo yum install docker git make htop -q -y
     sudo usermod -a -G docker ec2-user
     sudo systemctl enable docker.service
     sudo systemctl start docker.service
@@ -84,6 +87,18 @@ export PRIVATE_KEY_BASE64=$(base64 -i privatekey.pem)
     ```shell
     export API_KEY=<your-binance-api-key>
     export PRIVATE_KEY_BASE64=<your-binance-private-key-base64>
+    ```
+4. Скачайте репозиторий с кодом бота:
+    ```shell
+    git clone https://github.com/zwastler/binance-testbot.git
+    ```
+5. Соберите докер-образ с ботом:
+    ```shell
+    make build 
+    ```
+6. Запустите робота с базовыми настройками:
+    ```shell
+    docker run --rm -it -e API_KEY=$API_KEY -e PRIVATE_KEY_BASE64=$PRIVATE_KEY_BASE64 --name test_bot test_bot_binance
     ```
 
 ### Сборка и запуск в Docker контейнере
@@ -148,11 +163,10 @@ uv pip install -r requirements.txt
 5. Для разработки используются pre-commit-hooks которые устанавливаются командой `make pre-commit`.
 5. Подготовить ключи и переменные окружения для запуска бота (см. выше).
 
-## TODO (что можно доделать/переделать):
+## TODO (что нужно доделать):
 
-- [ ] Сделать логирование PnL при закрытии позиции (с учетом комиссии)
-- [ ] Сделать обработку балансов и минимальных объемов (ордеров) для выбранной пары
+- [ ] Переделать работу с userDataStream и обновленим listen_key (и пересозданием при необходимости через 24часа)
 - [ ] Заменить человекопонятный id на uuid, сделать процессинг сообщений / ордеров
 - [ ] Сделать сохранение стейта в sqlite/redis (для сохранения стейта при перезапуске)
-- [ ] Переделать работу с userDataStream и обновленим listen_key (и пересозданием при необходимости через 24часа)
-- [ ] Docker-compose для быстрой сборки/запуска и шаблон .env файла
+- [ ] Сделать обработку ошибок отправленных ордеров (400)
+- [ ] Починить тесты и довести покрытие до 90%

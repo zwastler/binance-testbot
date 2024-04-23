@@ -1,4 +1,6 @@
 import asyncio
+import os
+import signal
 import time
 from asyncio import Queue
 from typing import Any
@@ -26,21 +28,18 @@ class Trader:
             case "executionReport":
                 return msgspec.convert(message, type=Order)
             case "outboundAccountPosition":
-                # TODO: processing of account position
-                pass
+                self.update_balances(message["B"])
 
             case t if t.startswith("private_"):
                 _, msg_type = event_type.split("_", 1)
                 match msg_type:
                     case "order":
                         return msgspec.convert(message, type=Order)
-                        pass
                     case "exchangeinfo":
                         self.parse_exchangeinfo(message.get("result", {}))
                         logger.info("Assets updated", channel="trader")
                     case "account_status":
                         self.parse_balances(message.get("result", {}))
-                        logger.info("Balances updated", channel="trader")
 
     def parse_balances(self, data: dict[str, Any]) -> None:
         balances_data = data["balances"]
@@ -50,17 +49,56 @@ class Trader:
             locked = float(bal["locked"])
             self.state.balances.update_balance(asset, free, locked)
         self.state.balance_ready = True
-        logger.debug("Balances updated", channel="trader")
+        logger.info(
+            f"updated balances: "
+            f"{self.state.base_asset}: {getattr(self.state.balances, self.state.base_asset).free}, "
+            f"{self.state.quote_asset}: {getattr(self.state.balances, self.state.quote_asset).free}",
+            channel="trader",
+        )
+
+    def update_balances(self, data: dict[str, Any]) -> None:
+        for bal in data:
+            asset = bal["a"]  # type: ignore
+            free = float(bal["f"])  # type: ignore
+            locked = float(bal["l"])  # type: ignore
+            self.state.balances.update_balance(asset, free, locked)
+        logger.info(
+            f"updated balances: "
+            f"{self.state.base_asset}: {getattr(self.state.balances, self.state.base_asset).free}, "
+            f"{self.state.quote_asset}: {getattr(self.state.balances, self.state.quote_asset).free}",
+            channel="trader",
+        )
 
     def parse_exchangeinfo(self, data: dict[str, Any]) -> None:
         if info_symbol := data.get("symbols", [])[0].get("symbol"):
             if settings.SYMBOL == info_symbol:
-                self.state.base_asset = data.get("symbols", [])[0]["baseAsset"]
-                self.state.quote_asset = data.get("symbols", [])[0]["quoteAsset"]
+                symbol_details = data.get("symbols", [])[0]
+                filters = symbol_details.get("filters", [])
 
-                if not data.get("symbols", [])[0].get("status") == "TRADING":
-                    logger.info(f"Symbol {settings.SYMBOL} is not in TRADING state", channel="trader")
+                self.state.base_asset = symbol_details.get("baseAsset")
+                self.state.quote_asset = symbol_details.get("quoteAsset")
+
+                if not symbol_details.get("status") == "TRADING":
+                    self.state.status = STATUS.ERROR
+                    logger.error(f"Symbol {settings.SYMBOL} is not in TRADING state", channel="trader")
+                    os.kill(os.getpid(), signal.SIGTERM)
                     return
+
+                min_qtys = [f["minQty"] for f in filters if f["filterType"] == "LOT_SIZE"]
+                self.state.min_qty = float(min_qtys[0]) if min_qtys else 0.0
+                min_notional = [f["minNotional"] for f in filters if f["filterType"] == "NOTIONAL"]
+                self.state.min_notional = float(min_notional[0]) if min_notional else 0.0
+
+                if not self.state.min_qty or settings.POSITION_QUANTITY < self.state.min_qty:
+                    self.state.status = STATUS.ERROR
+                    logger.error(
+                        f"Invalid position amount, tick_size for {settings.SYMBOL} is {self.state.min_qty}, "
+                        f"but you try to trade {settings.POSITION_QUANTITY}",
+                        channel="trader",
+                    )
+                    os.kill(os.getpid(), signal.SIGTERM)
+                    return
+
                 self.state.symbols_ready = True
         logger.debug("ExchangeInfo updated", channel="trader")
 
@@ -112,12 +150,7 @@ class Trader:
     async def process_order(self, order: Order) -> None:
         if order.current_order_status == "FILLED":
             if self.state.status == STATUS.ENTERING_POSITION and self.state.position:
-                await logger.ainfo(
-                    f"Position entered: {order.last_executed_price}",
-                    channel="trader",
-                    quote_balance=getattr(self.state.balances, self.state.quote_asset).free,
-                    base_balance=getattr(self.state.balances, self.state.base_asset).free,
-                )
+                await logger.ainfo(f"Position entered: {order.last_executed_price}", channel="trader")
                 price = order.last_executed_price
                 self.state.position.price = price  # type: ignore
                 self.state.position.position_time = order.transaction_time
@@ -130,8 +163,6 @@ class Trader:
                     f"Position closed at: {order.last_executed_price}, PnL: {pnl}",
                     channel="trader",
                     pnl=pnl,
-                    quote_balance=getattr(self.state.balances, self.state.quote_asset).free,
-                    base_balance=getattr(self.state.balances, self.state.base_asset).free,
                     total_trades=self.state.total_tp_trades + self.state.total_sl_trades,
                     total_pnl=self.state.total_pnl,
                 )
@@ -170,14 +201,36 @@ class Trader:
         if not self.state.status == STATUS.READY:
             return
 
-        quote_balance = getattr(self.state.balances, self.state.quote_asset).free
-        if quote_balance < (settings.POSITION_QUANTITY * self.state.last_price):
-            await logger.ainfo("Not enough balance to enter new position", channel="trader")
-            return
+        await self.check_position_limitations()
+
         await logger.ainfo(f"Entering new position: {self.state.last_price}", channel="trader")
         self.state.status = STATUS.ENTERING_POSITION
         self.state.position = Position(amount=settings.POSITION_QUANTITY)
         await private_wss_client.order_place(side="BUY", quantity=settings.POSITION_QUANTITY)
+
+    async def check_position_limitations(self) -> None:
+        quote_balance = getattr(self.state.balances, self.state.quote_asset).free
+        requested_balance = settings.POSITION_QUANTITY * self.state.last_price
+        if quote_balance < requested_balance:
+            self.state.status = STATUS.ERROR
+            await logger.aerror(
+                f"Not enough balance to enter new position. You balance: {quote_balance}, requested: "
+                f"{requested_balance}",
+                channel="trader",
+            )
+            os.kill(os.getpid(), signal.SIGTERM)
+            return
+
+        if requested_balance < self.state.min_notional:
+            self.state.status = STATUS.ERROR
+            await logger.aerror(
+                f"Failed to create new position. "
+                f"Requested value for order is {requested_balance} {self.state.quote_asset}, "
+                f"minimal is {self.state.min_notional}",
+                channel="trader",
+            )
+            os.kill(os.getpid(), signal.SIGTERM)
+            return
 
     async def time_watcher(self) -> None:
         """Check for position exists, and wait for POSITION_HOLD_TIME, after time elapsed, close position"""

@@ -12,6 +12,7 @@ class STATUS(Enum):
     IN_POSITION = 3
     CLOSING_POSITION = 4
     SLEEPING = 5
+    ERROR = 9
 
 
 class Position(Struct):
@@ -49,6 +50,8 @@ class State(Struct):
 
     base_asset: str = ""
     quote_asset: str = ""
+    min_qty: float = 0.0
+    min_notional: float = 0.0
 
     status: STATUS = STATUS.INITIAL
     last_price: float = 0.0
