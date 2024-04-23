@@ -16,8 +16,7 @@ class Trader:
     def __init__(self) -> None:
         self.state = State()
 
-    @staticmethod
-    def parse_message(message: dict[str, Any]) -> Trade | Order | None:
+    def parse_message(self, message: dict[str, Any]) -> Trade | Order | None:
         if not (event_type := message.get("e", message.get("channel"))):
             return None
 
@@ -36,10 +35,34 @@ class Trader:
                     case "order":
                         return msgspec.convert(message, type=Order)
                         pass
-                    case "exchangeInfo":
-                        pass
+                    case "exchangeinfo":
+                        self.parse_exchangeinfo(message.get("result", {}))
+                        logger.info("Assets updated", channel="trader")
                     case "account_status":
-                        pass
+                        self.parse_balances(message.get("result", {}))
+                        logger.info("Balances updated", channel="trader")
+
+    def parse_balances(self, data: dict[str, Any]) -> None:
+        balances_data = data["balances"]
+        for bal in balances_data:
+            asset = bal["asset"]
+            free = float(bal["free"])
+            locked = float(bal["locked"])
+            self.state.balances.update_balance(asset, free, locked)
+        self.state.balance_ready = True
+        logger.debug("Balances updated", channel="trader")
+
+    def parse_exchangeinfo(self, data: dict[str, Any]) -> None:
+        if info_symbol := data.get("symbols", [])[0].get("symbol"):
+            if settings.SYMBOL == info_symbol:
+                self.state.base_asset = data.get("symbols", [])[0]["baseAsset"]
+                self.state.quote_asset = data.get("symbols", [])[0]["quoteAsset"]
+
+                if not data.get("symbols", [])[0].get("status") == "TRADING":
+                    logger.info(f"Symbol {settings.SYMBOL} is not in TRADING state", channel="trader")
+                    return
+                self.state.symbols_ready = True
+        logger.debug("ExchangeInfo updated", channel="trader")
 
     async def events_processing(self, queue: Queue) -> None:
         while True:
@@ -81,14 +104,20 @@ class Trader:
         self.state.last_price = float(trade.price)
 
     async def check_state(self) -> None:
-        if self.state.last_price and self.state.status == STATUS.INITIAL and self.state.stream_ready:
-            self.state.status = STATUS.READY
-            await logger.ainfo("TestBot is ready for trading..", channel="trader")
+        if self.state.last_price and self.state.status == STATUS.INITIAL:
+            if all((self.state.stream_ready, self.state.balance_ready, self.state.symbols_ready)):
+                self.state.status = STATUS.READY
+                await logger.ainfo("TestBot is ready for trading..", channel="trader")
 
     async def process_order(self, order: Order) -> None:
         if order.current_order_status == "FILLED":
             if self.state.status == STATUS.ENTERING_POSITION and self.state.position:
-                await logger.ainfo(f"Position entered: {order.last_executed_price}", channel="trader")
+                await logger.ainfo(
+                    f"Position entered: {order.last_executed_price}",
+                    channel="trader",
+                    quote_balance=getattr(self.state.balances, self.state.quote_asset).free,
+                    base_balance=getattr(self.state.balances, self.state.base_asset).free,
+                )
                 price = order.last_executed_price
                 self.state.position.price = price  # type: ignore
                 self.state.position.position_time = order.transaction_time
@@ -96,13 +125,32 @@ class Trader:
                 self.state.position.tp_price = price + (price * (settings.POSITION_SL_PERCENT / 100))  # type: ignore
                 self.state.status = STATUS.IN_POSITION
             elif self.state.status == STATUS.CLOSING_POSITION:
-                # TODO: Implement PnL calculation with commissions
-                pnl = order.last_executed_price - self.state.position.price  # type: ignore
-                await logger.ainfo(f"Position closed: {order.last_executed_price} PnL {pnl}", channel="trader")
+                pnl = self.pnl_calculation(order)
+                await logger.ainfo(
+                    f"Position closed at: {order.last_executed_price}, PnL: {pnl}",
+                    channel="trader",
+                    pnl=pnl,
+                    quote_balance=getattr(self.state.balances, self.state.quote_asset).free,
+                    base_balance=getattr(self.state.balances, self.state.base_asset).free,
+                    total_trades=self.state.total_tp_trades + self.state.total_sl_trades,
+                    total_pnl=self.state.total_pnl,
+                )
                 self.state.status = STATUS.SLEEPING
                 self.state.sleeping_at = order.transaction_time + settings.POSITION_SLEEP_TIME * 1000
                 self.state.position = None
                 await logger.ainfo(f"Sleeping for {settings.POSITION_SLEEP_TIME} sec", channel="trader")
+
+    def pnl_calculation(self, order: Order) -> float:
+        transaction_value = order.last_executed_price * order.quantity  # type: ignore
+        position_value = self.state.position.price * self.state.position.amount  # type: ignore
+        pnl = transaction_value - position_value - order.commission_amount  # type: ignore
+        self.state.total_pnl += pnl
+
+        if pnl > 0:
+            self.state.total_tp_trades += 1
+        else:
+            self.state.total_sl_trades += 1
+        return round(pnl, 6)
 
     async def check_position_actions(self) -> None:
         """Check if position should be closed due to TP or SL limits, or open new"""
@@ -122,6 +170,10 @@ class Trader:
         if not self.state.status == STATUS.READY:
             return
 
+        quote_balance = getattr(self.state.balances, self.state.quote_asset).free
+        if quote_balance < (settings.POSITION_QUANTITY * self.state.last_price):
+            await logger.ainfo("Not enough balance to enter new position", channel="trader")
+            return
         await logger.ainfo(f"Entering new position: {self.state.last_price}", channel="trader")
         self.state.status = STATUS.ENTERING_POSITION
         self.state.position = Position(amount=settings.POSITION_QUANTITY)

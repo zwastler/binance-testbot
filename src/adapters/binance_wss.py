@@ -193,7 +193,7 @@ class BinancePrivateWSS(BinanceWSS):
             case "session_logon":
                 await logger.ainfo(f"Auth Done ({message_id}) for {latency}ms", channel=self.channel)
                 self.auth_complete = True
-            case "account_status" | "exchangeInfo":
+            case "account_status" | "exchangeinfo":
                 queue.put_nowait({**message, **{"channel": f"{self.channel}_{message_id}"}})
             case "userdatastream_start":
                 if listen_key := message.get("result", {}).get("listenKey"):
