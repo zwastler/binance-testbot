@@ -34,7 +34,7 @@ def mock_async_logger():
 
 @freeze_time("2024-04-22T16:47:01Z")
 def test_create_ws_message():
-    symbol = "BTCUSD"
+    symbol = "BTCUSDT"
     message = public_wss_client.create_ws_message("SUBSCRIBE")
     assert message == {"method": "SUBSCRIBE", "params": [f"{symbol.lower()}@trade"],
                        "id": f"subscribe_{symbol.lower()}_1713804421000", }
@@ -42,7 +42,7 @@ def test_create_ws_message():
 
 @freeze_time("2024-04-22T16:47:01Z")
 def test_create_ws_message_logon():
-    symbol = "BTCUSD"
+    symbol = "BTCUSDT"
     message = private_wss_client.create_ws_message("session.logon")
     assert message['id'] == "session_logon_1713804421000"
     assert message['method'] == "session.logon"
@@ -53,7 +53,7 @@ def test_create_ws_message_logon():
 
 @freeze_time("2024-04-22T16:47:01Z")
 def test_create_ws_message_exchange_info():
-    symbol = "BTCUSD"
+    symbol = "BTCUSDT"
     method = "exchangeInfo"
     message = private_wss_client.create_ws_message(method)
     assert message['id'] == f"{method.replace('.', '_').lower()}_1713804421000"
@@ -63,7 +63,7 @@ def test_create_ws_message_exchange_info():
 
 @freeze_time("2024-04-22T16:47:01Z")
 def test_create_ws_message_userdatastream_start():
-    symbol = "BTCUSD"
+    symbol = "BTCUSDT"
     method = "userDataStream.start"
     message = private_wss_client.create_ws_message(method)
     assert message['id'] == f"{method.replace('.', '_').lower()}_1713804421000"
@@ -73,7 +73,7 @@ def test_create_ws_message_userdatastream_start():
 
 @freeze_time("2024-04-22T16:47:01Z")
 def test_create_ws_message_userdatastream_ping():
-    symbol = "BTCUSD"
+    symbol = "BTCUSDT"
     method = "userDataStream.ping"
     private_wss_client.listen_key = 'test_listenkey'
     message = private_wss_client.create_ws_message(method)

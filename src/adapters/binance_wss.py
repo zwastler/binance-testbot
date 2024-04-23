@@ -34,15 +34,22 @@ class BinanceWSS(metaclass=SingletonMeta):
     def __init__(self, symbol: str) -> None:
         self.symbol = symbol
 
-    def create_ws_message(self, method: str) -> dict[str, Any] | None:
+    def create_ws_message(self, method: str) -> dict[str, Any]:
         timestamp = int(time.time() * 1000)
+        payload = {
+            "id": f"{method}_{timestamp}".replace(".", "_").lower(),
+            "method": method,
+            "params": {},
+        }
         match method:
             case "SUBSCRIBE":
-                return {
-                    "id": f"subscribe_" f"{self.symbol}_{timestamp}".lower(),
-                    "method": f"{method}",
-                    "params": [f"{self.symbol.lower()}@trade"],
-                }
+                payload.update(
+                    {
+                        "id": f"subscribe_{self.symbol}_{timestamp}".lower(),
+                        "params": [f"{self.symbol.lower()}@trade"],
+                    }
+                )
+        return payload
 
     async def after_connect(self) -> None:
         if self.wss_client:
@@ -150,7 +157,7 @@ class BinancePrivateWSS(BinanceWSS):
     def generate_signature(self, data: str) -> str:
         return base64.b64encode(self.private_key.sign(data.encode())).decode()
 
-    def create_ws_message(self, method: str) -> dict[str, Any] | None:
+    def create_ws_message(self, method: str) -> dict[str, Any]:
         timestamp = int(time.time() * 1000)
         payload = {
             "id": f"{method}_{timestamp}".replace(".", "_").lower(),

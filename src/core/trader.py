@@ -37,11 +37,10 @@ class Trader:
                         return msgspec.convert(message, type=Order)
                     case "exchangeinfo":
                         self.parse_exchangeinfo(message.get("result", {}))
-                        logger.info("Assets updated", channel="trader")
                     case "account_status":
-                        self.parse_balances(message.get("result", {}))
+                        self.parse_and_update_balances(message.get("result", {}))
 
-    def parse_balances(self, data: dict[str, Any]) -> None:
+    def parse_and_update_balances(self, data: dict[str, Any]) -> None:
         balances_data = data["balances"]
         for bal in balances_data:
             asset = bal["asset"]
@@ -50,7 +49,7 @@ class Trader:
             self.state.balances.update_balance(asset, free, locked)
         self.state.balance_ready = True
         logger.info(
-            f"updated balances: "
+            f"Balances updated: "
             f"{self.state.base_asset}: {getattr(self.state.balances, self.state.base_asset).free}, "
             f"{self.state.quote_asset}: {getattr(self.state.balances, self.state.quote_asset).free}",
             channel="trader",
@@ -63,7 +62,7 @@ class Trader:
             locked = float(bal["l"])  # type: ignore
             self.state.balances.update_balance(asset, free, locked)
         logger.info(
-            f"updated balances: "
+            f"Balances updated: "
             f"{self.state.base_asset}: {getattr(self.state.balances, self.state.base_asset).free}, "
             f"{self.state.quote_asset}: {getattr(self.state.balances, self.state.quote_asset).free}",
             channel="trader",
@@ -100,7 +99,7 @@ class Trader:
                     return
 
                 self.state.symbols_ready = True
-        logger.debug("ExchangeInfo updated", channel="trader")
+        logger.info("Symbols updated", channel="trader")
 
     async def events_processing(self, queue: Queue) -> None:
         while True:
@@ -150,7 +149,7 @@ class Trader:
     async def process_order(self, order: Order) -> None:
         if order.current_order_status == "FILLED":
             if self.state.status == STATUS.ENTERING_POSITION and self.state.position:
-                await logger.ainfo(f"Position entered: {order.last_executed_price}", channel="trader")
+                await logger.ainfo(f"Position entered at: {order.last_executed_price}", channel="trader")
                 price = order.last_executed_price
                 self.state.position.price = price  # type: ignore
                 self.state.position.position_time = order.transaction_time
