@@ -5,13 +5,14 @@ from typing import Any
 from urllib.parse import urlencode
 
 import structlog
-from aiohttp import ClientSession, WSMsgType
+from aiohttp import ClientSession, ClientWebSocketResponse, WSMsgType, client_exceptions
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
-from msgspec.json import Decoder
+from msgspec import json
 from settings import settings
 
 logger = structlog.get_logger(__name__)
-decoder = Decoder()
+decoder = json.Decoder()
+encoder = json.Encoder()
 
 
 class SingletonMeta(type):
@@ -25,13 +26,12 @@ class SingletonMeta(type):
 
 
 class BinanceWSS(metaclass=SingletonMeta):
-    wss_client: ClientSession | None = None
+    wss_client: ClientWebSocketResponse | None = None
     wss_url = "wss://testnet.binance.vision/ws"
     channel = "public"
     queue: asyncio.Queue | None = None
 
     def __init__(self, symbol: str) -> None:
-        self.queue = None
         self.symbol = symbol
 
     def create_ws_message(self, method: str) -> dict[str, Any] | None:
@@ -46,7 +46,17 @@ class BinanceWSS(metaclass=SingletonMeta):
 
     async def after_connect(self) -> None:
         if self.wss_client:
-            await self.wss_client.send_json(self.create_ws_message("SUBSCRIBE"))
+            await self.send_json(self.create_ws_message("SUBSCRIBE"))
+
+    async def send_json(self, message: dict[str, Any]) -> None:
+        await logger.adebug(message, channel=self.channel)
+        if self.wss_client:
+            try:
+                await self.wss_client.send_str(encoder.encode(message).decode(), compress=False)
+            except client_exceptions.ClientError:
+                await logger.awarning("Failed to send message", message=message, channel=self.channel, exc_info=True)
+        else:
+            await logger.awarning("WebSocket connection not established", channel=self.channel)
 
     async def wss_connect(self, queue: asyncio.Queue) -> None:
         self.queue = queue
@@ -73,7 +83,7 @@ class BinanceWSS(metaclass=SingletonMeta):
         while True:
             if not self.wss_client:
                 await logger.awarning("WebSocket connection not established", channel=self.channel)
-                await asyncio.sleep(0.25)  # wait before attempting to reconnect
+                await asyncio.sleep(0.25)
                 continue
             async for msg in self.wss_client:  # type: ignore
                 if msg.type == WSMsgType.TEXT:
@@ -172,14 +182,14 @@ class BinancePrivateWSS(BinanceWSS):
         while True:
             await asyncio.sleep(60 * 30)  # send ping every 30 minutes
             await logger.ainfo("Sending UserStream listenKey update.", channel=self.channel)
-            await self.wss_client.send_json(self.create_ws_message("userDataStream.ping"))  # type: ignore
+            await self.send_json(self.create_ws_message("userDataStream.ping"))  # type: ignore
 
     async def after_connect(self) -> None:
         if self.wss_client:
-            await self.wss_client.send_json(self.create_ws_message("session.logon"))
-            await self.wss_client.send_json(self.create_ws_message("exchangeInfo"))
-            await self.wss_client.send_json(self.create_ws_message("account.status"))
-            await self.wss_client.send_json(self.create_ws_message("userDataStream.start"))
+            await self.send_json(self.create_ws_message("session.logon"))
+            await self.send_json(self.create_ws_message("exchangeInfo"))
+            await self.send_json(self.create_ws_message("account.status"))
+            await self.send_json(self.create_ws_message("userDataStream.start"))
         else:
             await logger.awarning("WebSocket connection not established", channel=self.channel)
 
@@ -198,6 +208,7 @@ class BinancePrivateWSS(BinanceWSS):
             case "userdatastream_start":
                 if listen_key := message.get("result", {}).get("listenKey"):
                     self.listen_key = listen_key
+                    # TODO: Refactor this, handle expiration and recreation every 24 hour
                     asyncio.create_task(self.user_data_stream_connect())
                     asyncio.create_task(self.user_data_stream_ping_worker())
 
@@ -209,19 +220,19 @@ class BinancePrivateWSS(BinanceWSS):
         if not self.wss_client or not self.auth_complete:
             await logger.awarning("WebSocket connection not established or not authenticated", channel=self.channel)
             return
-        new_order = {
-            "id": f"{side}_market_{int(time.time() * 1000)}".lower(),
-            "method": "order.place",
-            "params": {
-                "symbol": self.symbol.upper(),
-                "quantity": f"{quantity:.9f}".rstrip("0"),
-                "side": side,
-                "type": "MARKET",
-                "timestamp": int(time.time() * 1000),
-            },
-        }
-        await logger.adebug(f"new order: {new_order}", channel=self.channel)
-        await self.wss_client.send_json(new_order)
+        await self.send_json(
+            {
+                "id": f"{side}_market_{int(time.time() * 1000)}".lower(),
+                "method": "order.place",
+                "params": {
+                    "symbol": self.symbol.upper(),
+                    "quantity": f"{quantity:.9f}".rstrip("0"),
+                    "side": side,
+                    "type": "MARKET",
+                    "timestamp": int(time.time() * 1000),
+                },
+            }
+        )
 
 
 class UserStreamWSS(BinanceWSS):

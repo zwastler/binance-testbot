@@ -2,17 +2,16 @@ import asyncio
 import signal
 
 import structlog
+import uvloop
 from adapters.binance_wss import private_wss_client, public_wss_client
 from core.logging import setup_logging
 from core.trader import Trader
 from settings import settings
 
-logger = structlog.get_logger(__name__)
-shutdown_event = asyncio.Event()
 setup_logging()
 
 
-async def close_tasks(tasks: list) -> None:
+def close_tasks(tasks: list) -> None:
     for task in tasks:
         task.cancel()
 
@@ -32,10 +31,11 @@ async def main() -> None:
     ]
 
     for sig in (signal.SIGTERM, signal.SIGINT):
-        asyncio.get_running_loop().add_signal_handler(sig, lambda: asyncio.create_task(close_tasks(tasks)))
+        asyncio.get_running_loop().add_signal_handler(sig, lambda: close_tasks(tasks))
 
     await asyncio.gather(*tasks, return_exceptions=True)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    with asyncio.Runner(loop_factory=uvloop.new_event_loop) as runner:
+        runner.run(main())

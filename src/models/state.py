@@ -1,4 +1,3 @@
-# ruff: noqa: ERA001
 from enum import Enum
 from typing import Any
 
@@ -61,6 +60,3 @@ class State(Struct):
     total_tp_trades: int = 0
     total_sl_trades: int = 0
     total_pnl: float = 0.0
-
-    # orders: dict | None = None
-    # orders_processing: dict | None = None  # for limit orders

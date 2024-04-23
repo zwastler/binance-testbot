@@ -164,7 +164,7 @@ async def test_process_order_closing_position_and_sleep(trader, test_execution_r
     trader.state.status = STATUS.CLOSING_POSITION
     trader.state.position = Position(price=1000, amount=1, position_time=1713797483678, sl_price=950, tp_price=1050)
     order = trader.parse_message(test_execution_report_json)
-    pnl = order.last_executed_price - trader.state.position.price  # type: ignore
+    pnl = trader.pnl_calculation(order)
     await trader.process_order(order)
     assert trader.state.status == STATUS.SLEEPING
     assert trader.state.sleeping_at == order.transaction_time + settings.POSITION_SLEEP_TIME * 1000
@@ -190,6 +190,8 @@ async def test_check_position_actions_take_profit(mock_order_place, trader, mock
 @patch('adapters.binance_wss.private_wss_client.order_place', new_callable=AsyncMock)
 async def test_check_state(mock_order_place, mock_async_logger, trader):
     trader.state.stream_ready = True
+    trader.state.balance_ready = True
+    trader.state.symbols_ready = True
     trader.state.status = STATUS.INITIAL
     trader.state.last_price = 940
     await trader.check_state()
