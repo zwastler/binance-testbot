@@ -146,6 +146,8 @@ class Trader:
                 await logger.ainfo("TestBot is ready for trading..", channel="trader")
 
     async def process_order(self, order: Order) -> None:
+        if not order.symbol == settings.SYMBOL:
+            return
         if order.current_order_status == "FILLED":
             if self.state.status == STATUS.ENTERING_POSITION and self.state.position:
                 await logger.ainfo(

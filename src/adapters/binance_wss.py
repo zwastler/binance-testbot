@@ -109,28 +109,32 @@ class BinanceWSS(metaclass=SingletonMeta):
                     await logger.awarning(f"Unknown MsgType: {msg.type}", channel=self.channel)
 
     async def process_message(self, message: dict[str, Any], queue: asyncio.Queue) -> None:
-        # TODO: Refactor this
+        message_id, message_ts = self.parse_message_metadata(message)
+        message["channel"] = self.channel
+
+        if message.get("e", ""):
+            queue.put_nowait(message)
+
+        if latency := self.calc_latency(message_ts):
+            await logger.adebug(message, channel=self.channel, latency=latency)
+        else:
+            await logger.adebug(message, channel=self.channel)
+
+    def parse_message_metadata(self, message: dict[str, Any]) -> tuple[str, int]:
         if "_" in message.get("id", ""):
             message_id, message_ts = message.get("id", "").rsplit("_", 1)
         else:
             message_id, message_ts = "public", message.get("id", 0)
-            message["channel"] = self.channel
+        if message.get("e") and message.get("E"):
+            message_ts = int(message["E"])
+        return message_id, int(message_ts)
 
-        if message.get("e", ""):
-            queue.put_nowait(message)
-            message_ts = int(message.get("E", 0)) or int(message_ts)
-
+    def calc_latency(self, message_ts: int | str) -> int:
         if isinstance(message_ts, str):
-            latency = int(time.time() * 1000) - int(message_ts) if message_ts.isdigit() else -1
-        elif isinstance(message_ts, int):
-            latency = int(time.time() * 1000) - message_ts
-        else:
-            latency = -1
-
-        if latency:
-            await logger.adebug(message, channel=self.channel, latency=latency)
-        else:
-            await logger.adebug(message, channel=self.channel)
+            message_ts = int(message_ts) if message_ts.isdigit() else 0
+        elif not isinstance(message_ts, int):
+            return 0
+        return int(time.time() * 1000) - message_ts
 
 
 class BinancePrivateWSS(BinanceWSS):
