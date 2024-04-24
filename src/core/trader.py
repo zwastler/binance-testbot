@@ -1,6 +1,7 @@
 import asyncio
 import os
 import signal
+import sys
 import time
 from asyncio import Queue
 from typing import Any
@@ -78,9 +79,8 @@ class Trader:
                 self.state.quote_asset = symbol_details.get("quoteAsset")
 
                 if not symbol_details.get("status") == "TRADING":
-                    self.state.status = STATUS.ERROR
                     logger.error(f"Symbol {settings.SYMBOL} is not in TRADING state", channel="trader")
-                    os.kill(os.getpid(), signal.SIGTERM)
+                    self.exit_with_error()
                     return
 
                 min_qtys = [f["minQty"] for f in filters if f["filterType"] == "LOT_SIZE"]
@@ -89,13 +89,12 @@ class Trader:
                 self.state.min_notional = float(min_notional[0]) if min_notional else 0.0
 
                 if not self.state.min_qty or settings.POSITION_QUANTITY < self.state.min_qty:
-                    self.state.status = STATUS.ERROR
                     logger.error(
-                        f"Invalid position amount, tick_size for {settings.SYMBOL} is {self.state.min_qty}, "
+                        f"Invalid position amount, min_qty for {settings.SYMBOL} is {self.state.min_qty}, "
                         f"but you try to trade {settings.POSITION_QUANTITY}",
                         channel="trader",
                     )
-                    os.kill(os.getpid(), signal.SIGTERM)
+                    self.exit_with_error()
                     return
 
                 self.state.symbols_ready = True
@@ -173,7 +172,12 @@ class Trader:
     def pnl_calculation(self, order: Order) -> float:
         transaction_value = order.last_executed_price * order.quantity  # type: ignore
         position_value = self.state.position.price * self.state.position.amount  # type: ignore
-        pnl = transaction_value - position_value - order.commission_amount  # type: ignore
+
+        if order.commission_asset == self.state.base_asset:
+            commission_value = order.commission_amount * order.last_executed_price  # type: ignore
+        else:
+            commission_value = order.commission_amount
+        pnl = transaction_value - position_value - commission_value  # type: ignore
         self.state.total_pnl += pnl
 
         if pnl > 0:
@@ -211,24 +215,22 @@ class Trader:
         quote_balance = getattr(self.state.balances, self.state.quote_asset).free
         requested_balance = settings.POSITION_QUANTITY * self.state.last_price
         if quote_balance < requested_balance:
-            self.state.status = STATUS.ERROR
             await logger.aerror(
                 f"Not enough balance to enter new position. You balance: {quote_balance}, requested: "
                 f"{requested_balance}",
                 channel="trader",
             )
-            os.kill(os.getpid(), signal.SIGTERM)
+            self.exit_with_error()
             return
 
         if requested_balance < self.state.min_notional:
-            self.state.status = STATUS.ERROR
             await logger.aerror(
                 f"Failed to create new position. "
                 f"Requested value for order is {requested_balance} {self.state.quote_asset}, "
                 f"minimal is {self.state.min_notional}",
                 channel="trader",
             )
-            os.kill(os.getpid(), signal.SIGTERM)
+            self.exit_with_error()
             return
 
     async def time_watcher(self) -> None:
@@ -262,3 +264,7 @@ class Trader:
             except asyncio.CancelledError:
                 await logger.ainfo("Task was cancelled: time watcher", channel="trader")
                 break
+
+    def exit_with_error(self) -> None:
+        os.kill(os.getpid(), signal.SIGTERM)
+        sys.exit(1)
