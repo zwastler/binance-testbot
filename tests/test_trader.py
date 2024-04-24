@@ -262,7 +262,8 @@ async def test_process_order_entering_position(test_trader, test_execution_repor
     await test_trader.process_order(order)
     assert test_trader.state.status == STATUS.IN_POSITION
     mock_async_logger.ainfo.assert_awaited_once_with(
-        f"Position entered at: {order.last_executed_price}", channel="trader"
+        f"Position entered at: {order.last_executed_price}, quantity: {order.last_executed_quantity} "
+        f"{test_trader.state.base_asset}", channel="trader"
     )
 
 

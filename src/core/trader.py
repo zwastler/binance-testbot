@@ -148,7 +148,11 @@ class Trader:
     async def process_order(self, order: Order) -> None:
         if order.current_order_status == "FILLED":
             if self.state.status == STATUS.ENTERING_POSITION and self.state.position:
-                await logger.ainfo(f"Position entered at: {order.last_executed_price}", channel="trader")
+                await logger.ainfo(
+                    f"Position entered at: {order.last_executed_price}, quantity: {order.last_executed_quantity}"
+                    f" {self.state.base_asset}",
+                    channel="trader",
+                )
                 price = order.last_executed_price
                 self.state.position.price = price  # type: ignore
                 self.state.position.position_time = order.transaction_time
@@ -158,7 +162,8 @@ class Trader:
             elif self.state.status == STATUS.CLOSING_POSITION:
                 pnl = self.pnl_calculation(order)
                 await logger.ainfo(
-                    f"Position closed at: {order.last_executed_price}, PnL: {pnl}",
+                    f"Position closed at: {order.last_executed_price}, quantity: {order.last_executed_quantity} "
+                    f"{self.state.base_asset}, PnL: {pnl}",
                     channel="trader",
                     pnl=pnl,
                     total_trades=self.state.total_tp_trades + self.state.total_sl_trades,
