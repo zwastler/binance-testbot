@@ -173,13 +173,12 @@ class BinancePrivateWSS(BinanceWSS):
             case "session.logon" | "account.status":
                 pre_signature = {"apiKey": self.api_key, "timestamp": timestamp}
                 payload["params"]["signature"] = self.generate_signature(urlencode(pre_signature))  # type: ignore
-
             case "exchangeInfo":
                 payload["params"] = {"symbols": [self.symbol.upper()]}  # type: ignore
-
+            case "trades.recent":
+                payload["params"] = {"symbol": self.symbol.upper(), "limit": 1}  # type: ignore
             case "userDataStream.start":
                 payload["params"] = {"apiKey": self.api_key}  # type: ignore
-
             case "userDataStream.ping":
                 payload["params"] = {"apiKey": self.api_key, "listenKey": self.listen_key}
 
@@ -198,6 +197,7 @@ class BinancePrivateWSS(BinanceWSS):
     async def after_connect(self) -> None:
         if self.wss_client:
             await self.send_json(self.create_ws_message("session.logon"))
+            await self.send_json(self.create_ws_message("trades.recent"))
             await self.send_json(self.create_ws_message("exchangeInfo"))
             await self.send_json(self.create_ws_message("account.status"))
             await self.send_json(self.create_ws_message("userDataStream.start"))
@@ -214,7 +214,7 @@ class BinancePrivateWSS(BinanceWSS):
             case "session_logon":
                 await logger.ainfo(f"Auth Done ({message_id}) for {latency}ms", channel=self.channel)
                 self.auth_complete = True
-            case "account_status" | "exchangeinfo":
+            case "account_status" | "exchangeinfo" | "trades_recent":
                 queue.put_nowait({**message, **{"channel": f"{self.channel}_{message_id}"}})
             case "userdatastream_start":
                 if listen_key := message.get("result", {}).get("listenKey"):
@@ -237,7 +237,7 @@ class BinancePrivateWSS(BinanceWSS):
                 "method": "order.place",
                 "params": {
                     "symbol": self.symbol.upper(),
-                    "quantity": f"{quantity:.9f}".rstrip("0"),
+                    "quantity": f"{quantity:.9f}".rstrip("0") + "0",
                     "side": side,
                     "type": "MARKET",
                     "timestamp": int(time.time() * 1000),

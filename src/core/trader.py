@@ -34,12 +34,19 @@ class Trader:
             case t if t.startswith("private_"):
                 _, msg_type = event_type.split("_", 1)
                 match msg_type:
+                    case "trades_recent":
+                        self.parse_recent_trades(message.get("result", {}))
                     case "order":
                         return msgspec.convert(message, type=Order)
                     case "exchangeinfo":
                         self.parse_exchangeinfo(message.get("result", {}))
                     case "account_status":
                         self.parse_and_update_balances(message.get("result", {}))
+
+    def parse_recent_trades(self, data: dict[str, Any]) -> None:
+        for trade in data:
+            self.state.last_price = float(trade.get("price", 0))  # type: ignore
+            break
 
     def parse_and_update_balances(self, data: dict[str, Any]) -> None:
         balances_data = data["balances"]
@@ -253,6 +260,9 @@ class Trader:
                     await logger.ainfo("sleeping complete, ready for entering new position.")
                     self.state.status = STATUS.READY
                     self.state.sleeping_at = 0
+
+                elif self.state.status == STATUS.READY:  # force create new position without waiting new trades
+                    await self.create_new_position()
 
                 if not self.state.status == STATUS.IN_POSITION or not self.state.position:
                     await asyncio.sleep(1)
