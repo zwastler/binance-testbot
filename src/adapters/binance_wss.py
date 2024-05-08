@@ -8,6 +8,7 @@ import structlog
 from aiohttp import ClientSession, ClientWebSocketResponse, WSMsgType, client_exceptions
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from msgspec import json
+
 from settings import settings
 
 logger = structlog.get_logger(__name__)
@@ -26,13 +27,13 @@ class SingletonMeta(type):
 
 
 class BinanceWSS(metaclass=SingletonMeta):
-    wss_client: ClientWebSocketResponse | None = None
-    wss_url = "wss://testnet.binance.vision/ws"
-    channel = "public"
-    queue: asyncio.Queue | None = None
+    wss_client: ClientWebSocketResponse = None
+    queue: asyncio.Queue = None  # type: ignore
 
-    def __init__(self, symbol: str) -> None:
+    def __init__(self, symbol: str, channel: str, url: str) -> None:
         self.symbol = symbol
+        self.wss_url = url
+        self.channel = channel
 
     def create_ws_message(self, method: str) -> dict[str, Any]:
         timestamp = int(time.time() * 1000)
@@ -54,6 +55,8 @@ class BinanceWSS(metaclass=SingletonMeta):
     async def after_connect(self) -> None:
         if self.wss_client:
             await self.send_json(self.create_ws_message("SUBSCRIBE"))
+
+    async def after_cancel(self) -> None: ...
 
     async def send_json(self, message: dict[str, Any]) -> None:
         await logger.adebug(message, channel=self.channel)
@@ -79,6 +82,7 @@ class BinanceWSS(metaclass=SingletonMeta):
                 logger.info(f"Task was cancelled: {self.__class__.__name__}")
                 if self.wss_client:
                     await self.wss_client.close()
+                await self.after_cancel()
                 break
             except Exception as err:
                 await logger.awarning(
@@ -138,11 +142,11 @@ class BinanceWSS(metaclass=SingletonMeta):
 
 
 class BinancePrivateWSS(BinanceWSS):
-    wss_url = "wss://testnet.binance.vision/ws-api/v3"
-    channel = "private"
+    extra_tasks: list[asyncio.Task] = []
 
-    def __init__(self, symbol: str, api_key: str, private_key_base64: str) -> None:
-        super().__init__(symbol)
+    def __init__(self, symbol: str, channel: str, url: str, api_key: str, private_key_base64: str) -> None:
+        super().__init__(symbol, channel, url)
+        self.listen_key = None
         if not hasattr(self, "api_initialized"):
             self.api_key = api_key
             self.private_key = self.load_private_key(private_key_base64)
@@ -185,8 +189,13 @@ class BinancePrivateWSS(BinanceWSS):
         return payload
 
     async def user_data_stream_connect(self) -> None:
-        if self.queue:
-            await UserStreamWSS(self.symbol, self.listen_key).wss_connect(self.queue)
+        if self.queue and self.listen_key:
+            await UserStreamWSS(
+                symbol=self.symbol,
+                channel="user_stream",
+                url="wss://testnet.binance.vision/ws",
+                listen_key=self.listen_key,
+            ).wss_connect(self.queue)
 
     async def user_data_stream_ping_worker(self) -> None:
         while True:
@@ -194,13 +203,21 @@ class BinancePrivateWSS(BinanceWSS):
             await logger.ainfo("Sending UserStream listenKey update.", channel=self.channel)
             await self.send_json(self.create_ws_message("userDataStream.ping"))  # type: ignore
 
+    async def after_cancel(self) -> None:
+        if self.extra_tasks:
+            for task in self.extra_tasks:
+                task.cancel()
+
     async def after_connect(self) -> None:
         if self.wss_client:
-            await self.send_json(self.create_ws_message("session.logon"))
-            await self.send_json(self.create_ws_message("trades.recent"))
-            await self.send_json(self.create_ws_message("exchangeInfo"))
-            await self.send_json(self.create_ws_message("account.status"))
-            await self.send_json(self.create_ws_message("userDataStream.start"))
+            for method in (
+                "session.logon",
+                "trades.recent",
+                "exchangeInfo",
+                "account.status",
+                "userDataStream.start",
+            ):
+                await self.send_json(self.create_ws_message(method))
         else:
             await logger.awarning("WebSocket connection not established", channel=self.channel)
 
@@ -219,9 +236,10 @@ class BinancePrivateWSS(BinanceWSS):
             case "userdatastream_start":
                 if listen_key := message.get("result", {}).get("listenKey"):
                     self.listen_key = listen_key
-                    # TODO: Refactor this, handle expiration and recreation every 24 hour
-                    asyncio.create_task(self.user_data_stream_connect())
-                    asyncio.create_task(self.user_data_stream_ping_worker())
+                    self.extra_tasks = [
+                        asyncio.create_task(self.user_data_stream_connect()),
+                        asyncio.create_task(self.user_data_stream_ping_worker()),
+                    ]
 
     async def order_place(self, side: str, quantity: float) -> None:
         if side not in ("BUY", "SELL"):
@@ -247,12 +265,9 @@ class BinancePrivateWSS(BinanceWSS):
 
 
 class UserStreamWSS(BinanceWSS):
-    base_wss_url = "wss://testnet.binance.vision/ws"
-    channel = "user_stream"
-
-    def __init__(self, symbol: str, listen_key: str) -> None:
-        super().__init__(symbol)
-        self.wss_url = f"{self.base_wss_url}/{listen_key}"
+    def __init__(self, symbol: str, channel: str, url: str, listen_key: str) -> None:
+        super().__init__(symbol, channel, url)
+        self.wss_url = f"{url}/{listen_key}"
 
     async def after_connect(self) -> None:
         self.queue.put_nowait({"channel": self.channel, "event": "connected"})  # type: ignore
@@ -263,10 +278,12 @@ class UserStreamWSS(BinanceWSS):
         await logger.adebug(message, channel=self.channel)
 
 
-public_wss_client = BinanceWSS(symbol=settings.SYMBOL)
+public_wss_client = BinanceWSS(symbol=settings.SYMBOL, channel="public", url="wss://testnet.binance.vision/ws")
 
 private_wss_client = BinancePrivateWSS(
     symbol=settings.SYMBOL,
+    channel="private",
+    url="wss://testnet.binance.vision/ws-api/v3",
     api_key=settings.API_KEY,
     private_key_base64=settings.PRIVATE_KEY_BASE64,
 )

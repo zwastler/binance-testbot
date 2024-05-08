@@ -118,7 +118,7 @@ def test_outbound_position_json():
 @pytest.fixture
 def test_trader(test_balances_json, test_exchangeinfo_json, mock_async_logger):
     test_trader = Trader()
-    test_trader.parse_exchangeinfo(test_exchangeinfo_json["result"])
+    test_trader.parse_exchange_info(test_exchangeinfo_json["result"])
     test_trader.parse_and_update_balances(test_balances_json["result"])
     test_trader.state.last_price = 10000
     return test_trader

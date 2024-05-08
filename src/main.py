@@ -27,7 +27,7 @@ async def main() -> None:
         asyncio.create_task(public_wss_client.wss_connect(queue)),
         asyncio.create_task(private_wss_client.wss_connect(queue)),
         asyncio.create_task(trader.events_processing(queue)),
-        asyncio.create_task(trader.time_watcher()),  # Watcher for position hold time
+        asyncio.create_task(trader.time_watcher()),
     ]
 
     for sig in (signal.SIGTERM, signal.SIGINT):

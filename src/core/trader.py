@@ -39,7 +39,7 @@ class Trader:
                     case "order":
                         return msgspec.convert(message, type=Order)
                     case "exchangeinfo":
-                        self.parse_exchangeinfo(message.get("result", {}))
+                        self.parse_exchange_info(message.get("result", {}))
                     case "account_status":
                         self.parse_and_update_balances(message.get("result", {}))
 
@@ -76,7 +76,7 @@ class Trader:
             channel="trader",
         )
 
-    def parse_exchangeinfo(self, data: dict[str, Any]) -> None:
+    def parse_exchange_info(self, data: dict[str, Any]) -> None:
         if info_symbol := data.get("symbols", [])[0].get("symbol"):
             if settings.SYMBOL == info_symbol:
                 symbol_details = data.get("symbols", [])[0]
@@ -154,6 +154,7 @@ class Trader:
 
     async def process_order(self, order: Order) -> None:
         if not order.symbol == settings.SYMBOL:
+            """Simple check for allow run multiple bot instances on same account and different symbols"""
             return
         if order.current_order_status == "FILLED":
             if self.state.status == STATUS.ENTERING_POSITION and self.state.position:
@@ -182,6 +183,12 @@ class Trader:
                 self.state.sleeping_at = order.transaction_time + settings.POSITION_SLEEP_TIME * 1000
                 self.state.position = None
                 await logger.ainfo(f"Sleeping for {settings.POSITION_SLEEP_TIME} sec", channel="trader")
+            else:
+                await logger.aerror(
+                    f"Unexpected filled order: {order.current_order_status}, state: {self.state.status}"
+                    f"order: {order}",
+                    channel="trader",
+                )
 
     def pnl_calculation(self, order: Order) -> float:
         transaction_value = order.last_executed_price * order.quantity  # type: ignore
@@ -201,7 +208,7 @@ class Trader:
         return round(pnl, 6)
 
     async def check_position_actions(self) -> None:
-        """Check if position should be closed due to TP or SL limits, or open new"""
+        """Check if position should be closed due to TP or SL limits"""
 
         if self.state.status == STATUS.IN_POSITION and self.state.position:
             if self.state.last_price >= self.state.position.tp_price:
@@ -282,6 +289,7 @@ class Trader:
                 await logger.ainfo("Task was cancelled: time watcher", channel="trader")
                 break
 
-    def exit_with_error(self) -> None:
+    @staticmethod
+    def exit_with_error() -> None:
         os.kill(os.getpid(), signal.SIGTERM)
         sys.exit(1)
